@@ -1,67 +1,47 @@
 pipeline {
     agent any
-    
-    tools {
+     tools {
         nodejs 'nodejs'
     }
-    
+
     environment {
         SCANNER_HOME= tool 'sonar-scanner'
     }
 
     stages {
-        stage('GitClone from GitHub') {
+        stage('gitclone') {
             steps {
                 git 'https://github.com/jetty251/hotstart.HOT.git'
             }
         }
-        
-        stage('SonarQube Analysis') {
+         stage('s3 backup') {
             steps {
-                withSonarQubeEnv('sonarqube') {
-                    sh "$SCANNER_HOME/bin/sonar-scanner -Dsonar.projectKey=Hotstarpro -Dsonar.projectName=Hotstarpro "
+                 sh 'aws s3 cp /var/lib/jenkins/workspace/hot.project/ s3://jetty-hotstar/jetty-hotstar2/ --recursive'
+            }
+         }
+         stage('deploy to tomcat') {
+            steps {
+                 sh "sudo scp -o StrictHostKeyChecking=no /var/lib/jenkins/workspace/hot.project/package.json package-lock.json root@16.171.59.245:/root/tomcat/webapps/"
+            }
+        }
+         stage('build docker image') {
+            steps {
+                withDockerRegistry(credentialsId: 'docker-tocken', toolName: 'jetty45') {
+                    sh "docker build -t jetty45/hotstarpro:v1 ." 
                 }
             }
         }
-        
-        stage('S3 Backup') {
+         stage('push docker image') {
             steps {
-                sh 'aws s3 cp /var/lib/jenkins/workspace/hotstarpro/ s3://hotstarpro/hotstarpro/ --recursive'
-            }
-        }
-        
-        stage('Deploy to Tomcat') {
-            steps {
-                sh "sudo scp -o StrictHostKeyChecking=no /var/lib/jenkins/workspace/hotstarpro/package.json package-lock.json root@34.207.242.242:/root/tomcat/webapps/"
-            }
-        }
-        
-        stage('Docker Image Build&Tag') {
-            steps {
-                script {
-                    withDockerRegistry(credentialsId: 'docker-token', toolName: 'docker') {
-                        sh "docker build -t adikesavanaidug2404/hotstarpro:v1 ."
-                    }
+                withDockerRegistry(credentialsId: 'docker-tocken', toolName: 'jetty45') {
+                    sh "docker push jetty45/hotstarpro:v1" 
                 }
             }
         }
-        
-        stage('Push Docker Image to DockerHub') {
+         stage('deploy to container') {
             steps {
-                script {
-                    withDockerRegistry(credentialsId: 'docker-token', toolName: 'docker') {
-                        sh "docker push adikesavanaidug2404/hotstarpro:v1"
-                    }
-                }
-            }
-        }
-        
-        stage('Deploy to DockerContainer(Run the DockerImage') {
-            steps {
-                script {
-                    withDockerRegistry(credentialsId: 'docker-token', toolName: 'docker') {
-                        sh "docker run -d -p 3000:3000 adikesavanaidug2404/hotstarpro:v1 ."
-                    }
+                withDockerRegistry(credentialsId: 'docker-tocken', toolName: 'jetty45') {
+                    sh "docker run -d -p 3000:3000 jetty45/hotstarpro:v1" 
                 }
             }
         }
